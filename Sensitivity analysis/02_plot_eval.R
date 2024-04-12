@@ -1,0 +1,85 @@
+library(ggplot2)
+library(readxl)
+library(dplyr)
+library(dichromat)
+library(cowplot)
+library(grid)
+library(ggplotify)
+library(magick)
+library(png)
+
+min_non_NA <- 0
+
+setwd(paste0("C:/Users/LAURA/Documents/ETHZ/Master/Master thesis/SCI project/code - final version/Sensitivity analysis/data_sensitivity_analysis - ", min_non_NA))
+
+lapply(c('lems', 'uems', 'ltscore', 'ppscore', 'modben'), function(outcome){
+  meth_list <- lapply(c("lpa", "kmeans"), function(meth){
+    true <- read_xlsx(paste0("C:\\Users\\LAURA\\Documents\\ETHZ\\Master\\Master thesis\\SCI project\\code - final version\\Sensitivity analysis\\data_sensitivity_analysis - ", min_non_NA, "\\", meth, "_quality_criteria_full_", outcome, "_renamed.xlsx"))
+    imputed <- read_xlsx(paste0("C:\\Users\\LAURA\\Documents\\ETHZ\\Master\\Master thesis\\SCI project\\code - final version\\Sensitivity analysis\\data_sensitivity_analysis - ", min_non_NA, "\\", meth, "_quality_criteria_imputed_", outcome, "_renamed.xlsx"))
+    true$.imp <- 0
+    true <- true %>% relocate('.imp')
+    df <- rbind(true, imputed)
+    df$method <- meth
+    df <- df %>% relocate('method')
+    df
+  })
+  eval_full <- bind_rows(meth_list)
+  selection_list <- lapply(c("Calinski.Harabatz", "Calinski.Harabatz2",	"Calinski.Harabatz3",	"Ray.Turi",	"Davies.Bouldin",	"BIC", "BIC2", "AIC", "AICc",	"AICc2",	"postProbaGlobal"), function(crit){
+    selection_df <- eval_full[, c('method', '.imp', 'G', crit)]
+    selection_df$criterion <- crit
+    names(selection_df) <- c('method', 'imp', "G", 'value', 'criterion_name')
+    selection_df <- selection_df %>% relocate('value', .after = last_col())
+  })
+  eval_reshaped <- bind_rows(selection_list)
+  eval_reshaped$imp <- paste0("imputed ", eval_reshaped$imp)
+  eval_reshaped$imp[eval_reshaped$imp == "imputed 0"] <- "observed"
+  eval_reshaped$imp <- factor(eval_reshaped$imp, levels = c(paste0("imputed ", 1:20), "observed"))
+  colors_imputed <- colorRampPalette(colors=c("#FFFFFF", "#990000"))(21)[2:21]
+  names(colors_imputed) <- paste0("imputed ", 1:20)
+  color_observed <- c("observed" = "red")
+  colors_imputed2 <- colorRampPalette(colors=c("#FFFFFF", "#00008b"))(21)[2:21]
+  names(colors_imputed2) <- paste0("imputed ", 1:20)
+  color_observed2 <- c("observed" = "blue")
+  sizes_imputed <- rep(0.5, 20)
+  names(sizes_imputed) <- paste0("imputed ", 1:20)
+  size_observed <- c("observed" = 1)
+  lab_facets <- c('Calinski.Harabatz' = 'Calinski and Harabatz criterion', "Calinski.Harabatz2" = "Calinski and Harabatz criterion \n modified by Krysczuk",	"Calinski.Harabatz3" = "Calinski and Harabatz criterion \n modified by Genolini",	"Ray.Turi" = "Ray and Turi criterion",	"Davies.Bouldin" = "Davies and Bouldin criterion",	"BIC" = "Bayesian Information Criterion \n (based on the number of individuals)", "BIC2" = "Bayesian Information Criterion \n (based on the number of measurements)", "AIC" = "Akaike Information Criterion", "AICc" = "Akaike Information Criterion with correction \n (based on the number of individuals)",	"AICc2" = "Akaike Information Criterion with correction \n (based on the number of measurements)",	"postProbaGlobal" = "Global posterior probability")
+  pkmeans <- ggplot(data = eval_reshaped[eval_reshaped$method == 'kmeans',], mapping = aes(x = G, y = value, color = imp, group = imp, size = imp)) + geom_line() + scale_color_manual(values = c(color_observed, colors_imputed)) + scale_size_manual(values = c(size_observed, sizes_imputed)) + facet_wrap(~criterion_name, labeller = labeller(criterion_name = lab_facets), scales = "free") + labs(x = "Number of Clusters", y = "Value of the Criterion", color = "k-Means", group = "k-Means", size = "k-Means")
+  plpa <- ggplot(data = eval_reshaped[eval_reshaped$method == 'lpa',], mapping = aes(x = G, y = value, color = imp, group = imp, size = imp)) + geom_line() + scale_color_manual(values = c(color_observed2, colors_imputed2)) + scale_size_manual(values = c(size_observed, sizes_imputed)) + facet_wrap(~criterion_name, labeller = labeller(criterion_name = lab_facets), scales = "free") + labs(x = "Number of Clusters", y = "Value of the Criterion", color = "LPA", group = "LPA", size = "LPA")
+  png(paste0("C:/Users/LAURA/Documents/ETHZ/Master/Master thesis/SCI project/code - final version/Sensitivity analysis/data_sensitivity_analysis - ", min_non_NA, "/legendkmeans-", outcome, ".png"))
+  as.ggplot(get_legend(pkmeans))  # t, r, b, l
+  dev.off()
+  #ggsave(filename = paste0("C:\\Users\\LAURA\\Documents\\ETHZ\\Master\\Master thesis\\SCI project\\code - final version\\Sensitivity analysis\\data_sensitivity_analysis - ", min_non_NA, "\\", "leg-kmeans-",outcome, ".png"), plot = 'legendkmeans', device = 'png', width = 3, height = 12)
+  png(paste0("C:/Users/LAURA/Documents/ETHZ/Master/Master thesis/SCI project/code - final version/Sensitivity analysis/data_sensitivity_analysis - ", min_non_NA, "/legendlpa-", outcome, ".png"))
+  as.ggplot(get_legend(plpa)) 
+  dev.off()
+  #ggsave(filename = paste0("C:\\Users\\LAURA\\Documents\\ETHZ\\Master\\Master thesis\\SCI project\\code - final version\\Sensitivity analysis\\data_sensitivity_analysis - ", min_non_NA, "\\", "leg-kmeans-",outcome, ".png"), plot = 'legendlpa', device = 'png', width = 3, height = 12)
+  #leg <- as.ggplot(grid.arrange(legendkmeans, legendlpa, ncol = 1)) + theme(plot.margin = margin(2, 2, 2, 2, "cm"))
+  eval_reshaped$methinp <- paste0(eval_reshaped$method, " - ", eval_reshaped$imp)
+  color1 <- c(color_observed, colors_imputed)
+  names(color1) <- paste0('kmeans - ', names(color1))
+  color2 <- c(color_observed2, colors_imputed2)
+  names(color2) <- paste0('lpa - ', names(color2))
+  size1 <- c(size_observed, sizes_imputed)
+  names(size1) <- paste0('kmeans - ', names(size1))
+  size2 <- c(size_observed, sizes_imputed)
+  names(size2) <- paste0('lpa - ', names(size2))
+  png(paste0("C:/Users/LAURA/Documents/ETHZ/Master/Master thesis/SCI project/code - final version/Sensitivity analysis/data_sensitivity_analysis - ", min_non_NA, "/main-", outcome, ".png"), width = 2000, height = 1000)
+  ggplot(data = eval_reshaped, mapping = aes(x = G, y = value, color = methinp, group = methinp, size = methinp)) + geom_line() + scale_color_manual(values = c(color1, color2)) + scale_size_manual(values = c(size1, size2)) + facet_wrap(~criterion_name, labeller = labeller(criterion_name = lab_facets), scales = "free") + labs(x = "Number of Clusters", y = "Value of the Criterion", color = "Dataset", group = "Dataset", size = "Dataset") + theme(legend.position = "none", plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"))
+  #ggsave(filename = paste0("C:\\Users\\LAURA\\Documents\\ETHZ\\Master\\Master thesis\\SCI project\\code - final version\\Sensitivity analysis\\data_sensitivity_analysis - ", min_non_NA, "\\", "leg-kmeans-",outcome, ".png"), plot = 'p', device = 'png', width = 50, height = 24)
+  dev.off()
+  lkml <- image_read(paste0("C:/Users/LAURA/Documents/ETHZ/Master/Master thesis/SCI project/code - final version/Sensitivity analysis/data_sensitivity_analysis - ", min_non_NA, "/legendkmeans-", outcome, ".png"))
+  llpa <- image_read(paste0("C:/Users/LAURA/Documents/ETHZ/Master/Master thesis/SCI project/code - final version/Sensitivity analysis/data_sensitivity_analysis - ", min_non_NA, "/legendlpa-", outcome, ".png"))
+  pl <- image_read(paste0("C:/Users/LAURA/Documents/ETHZ/Master/Master thesis/SCI project/code - final version/Sensitivity analysis/data_sensitivity_analysis - ", min_non_NA, "/main-", outcome, ".png"))
+  lkml_cropped <- image_crop(lkml, "200x350+140")
+  llpa_cropped <- image_crop(llpa, "200x350+140+130")
+  legends <- image_append(c(lkml_cropped, llpa_cropped), stack = TRUE)
+  leg_horiz <- image_append(c(image_crop(lkml, "170x220+155+130"), image_crop(llpa, "170x220+155+130")))
+  legends_cropped <- image_crop(legends, "200x580+0+120")
+  white <- image_scale(image_crop(lkml, "200x130"), "200x420")
+  final_plot <- image_append(c(pl, image_append(c(legends_cropped, white), stack = TRUE)))
+  image_write(final_plot, path = paste0("C:/Users/LAURA/Documents/ETHZ/Master/Master thesis/SCI project/code - final version/Sensitivity analysis/data_sensitivity_analysis - ", min_non_NA, "/eval-", outcome, ".png"), format = "png", quality = 100)
+  file.remove(paste0("C:/Users/LAURA/Documents/ETHZ/Master/Master thesis/SCI project/code - final version/Sensitivity analysis/data_sensitivity_analysis - ", min_non_NA, "/legendkmeans-", outcome, ".png"))
+  file.remove(paste0("C:/Users/LAURA/Documents/ETHZ/Master/Master thesis/SCI project/code - final version/Sensitivity analysis/data_sensitivity_analysis - ", min_non_NA, "/legendlpa-", outcome, ".png"))
+  file.remove(paste0("C:/Users/LAURA/Documents/ETHZ/Master/Master thesis/SCI project/code - final version/Sensitivity analysis/data_sensitivity_analysis - ", min_non_NA, "/main-", outcome, ".png"))
+})
